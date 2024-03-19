@@ -52,12 +52,11 @@ public class ChangeEventSpannerConvertor {
         }
         Mutation.WriteBuilder builder = Mutation.newInsertOrUpdateBuilder(table.name());
 
-        for (String columnName : columnNames) {
-            Type columnType = table.column(columnName).type();
+        for (String colName : columnNames) {
+            Type columnType = table.column(colName).type();
             Value columnValue = null;
 
-            String colName = columnName.toLowerCase();
-            boolean requiredField = keyColumnNames.contains(columnName);
+            boolean requiredField = keyColumnNames.contains(colName);
             switch (columnType.getCode()) {
                 case BOOL:
                 case PG_BOOL:
@@ -114,12 +113,12 @@ public class ChangeEventSpannerConvertor {
                 default:
                     throw new IllegalArgumentException(
                             "Column name("
-                                    + columnName
+                                    + colName
                                     + ") has unsupported column type("
                                     + columnType.getCode()
                                     + ")");
             }
-            builder.set(columnName).to(columnValue);
+            builder.set(colName).to(columnValue);
         }
         return builder;
     }
