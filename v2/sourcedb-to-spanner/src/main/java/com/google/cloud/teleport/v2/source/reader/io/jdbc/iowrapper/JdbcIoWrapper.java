@@ -17,6 +17,8 @@ package com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper;
 
 import com.google.cloud.teleport.v2.source.reader.io.IoWrapper;
 import com.google.cloud.teleport.v2.source.reader.io.exception.SuitableIndexNotFoundException;
+import com.google.cloud.teleport.v2.source.reader.io.jdbc.LocalJdbcIO;
+import com.google.cloud.teleport.v2.source.reader.io.jdbc.LocalJdbcRowMapper;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.JdbcIOWrapperConfig;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.config.TableConfig;
 import com.google.cloud.teleport.v2.source.reader.io.jdbc.rowmapper.JdbcSourceRowMapper;
@@ -37,9 +39,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
+import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.io.jdbc.JdbcIO.DataSourceConfiguration;
-import org.apache.beam.sdk.io.jdbc.JdbcIO.ReadWithPartitions;
 import org.apache.beam.sdk.options.ValueProvider.StaticValueProvider;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.values.PBegin;
@@ -68,7 +70,8 @@ public final class JdbcIoWrapper implements IoWrapper {
    *     column. Please refer to {@link JdbcIoWrapper#autoInferTableConfigs(JdbcIOWrapperConfig,
    *     SchemaDiscovery, DataSource)} for details on situation where this is thrown.
    */
-  public static JdbcIoWrapper of(JdbcIOWrapperConfig config) throws SuitableIndexNotFoundException {
+  public static JdbcIoWrapper of(JdbcIOWrapperConfig config, PCollection<?> parent)
+      throws SuitableIndexNotFoundException {
     DataSourceConfiguration dataSourceConfiguration = getDataSourceConfiguration(config);
 
     DataSource dataSource = dataSourceConfiguration.buildDatasource();
@@ -80,7 +83,7 @@ public final class JdbcIoWrapper implements IoWrapper {
         autoInferTableConfigs(config, schemaDiscovery, dataSource);
     SourceSchema sourceSchema = getSourceSchema(config, schemaDiscovery, dataSource, tableConfigs);
     ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> tableReaders =
-        buildTableReaders(config, tableConfigs, dataSourceConfiguration, sourceSchema);
+        buildTableReaders(config, tableConfigs, dataSourceConfiguration, sourceSchema, parent);
     return new JdbcIoWrapper(tableReaders, sourceSchema);
   }
 
@@ -110,7 +113,8 @@ public final class JdbcIoWrapper implements IoWrapper {
           JdbcIOWrapperConfig config,
           ImmutableList<TableConfig> tableConfigs,
           DataSourceConfiguration dataSourceConfiguration,
-          SourceSchema sourceSchema) {
+          SourceSchema sourceSchema,
+          PCollection<?> parent) {
     return tableConfigs.stream()
         .map(
             tableConfig -> {
@@ -127,7 +131,8 @@ public final class JdbcIoWrapper implements IoWrapper {
                       dataSourceConfiguration,
                       sourceSchema.schemaReference(),
                       tableConfig,
-                      sourceTableSchema));
+                      sourceTableSchema,
+                      parent));
             })
         .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
   }
@@ -259,22 +264,28 @@ public final class JdbcIoWrapper implements IoWrapper {
       DataSourceConfiguration dataSourceConfiguration,
       SourceSchemaReference sourceSchemaReference,
       TableConfig tableConfig,
-      SourceTableSchema sourceTableSchema) {
-    ReadWithPartitions<SourceRow, @UnknownKeyFor @NonNull @Initialized Long> jdbcIO =
-        JdbcIO.<SourceRow>readWithPartitions()
-            .withTable(tableConfig.tableName())
-            .withPartitionColumn(tableConfig.partitionColumns().get(0))
-            .withDataSourceProviderFn(JdbcIO.PoolableDataSourceProvider.of(dataSourceConfiguration))
-            .withRowMapper(
-                new JdbcSourceRowMapper(
-                    config.valueMappingsProvider(),
-                    sourceSchemaReference,
-                    sourceTableSchema,
-                    config.shardID()));
+      SourceTableSchema sourceTableSchema,
+      PCollection<?> parent) {
+    LocalJdbcIO.LocalReadWithPartitions<SourceRow, @UnknownKeyFor @NonNull @Initialized Long>
+        localJdbcIO =
+            LocalJdbcIO.<SourceRow>localReadWithPartitions()
+                .withTable(tableConfig.tableName())
+                .withPartitionColumn(tableConfig.partitionColumns().get(0))
+                .withDataSourceProviderFn(
+                    JdbcIO.PoolableDataSourceProvider.of(dataSourceConfiguration))
+                .withCoder(SerializableCoder.of(SourceRow.class))
+                .withRowMapper(
+                    new LocalJdbcRowMapper<>(
+                        new JdbcSourceRowMapper(
+                            config.valueMappingsProvider(),
+                            sourceSchemaReference,
+                            sourceTableSchema,
+                            config.shardID())))
+                .withParentPCollection(parent);
     if (tableConfig.maxPartitions() != null) {
-      jdbcIO = jdbcIO.withNumPartitions(tableConfig.maxPartitions());
+      localJdbcIO = localJdbcIO.withNumPartitions(tableConfig.maxPartitions());
     }
-    return jdbcIO;
+    return localJdbcIO;
   }
 
   /**

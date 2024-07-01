@@ -104,7 +104,8 @@ public class JdbcIoWrapperTest {
                 .setJdbcDriverJars("")
                 .setJdbcDriverClassName("org.apache.derby.jdbc.EmbeddedDriver")
                 .setDialectAdapter(mockDialectAdapter)
-                .build());
+                .build(),
+            null);
     SourceSchema sourceSchema = jdbcIoWrapper.discoverTableSchema();
     assertThat(sourceSchema.schemaReference()).isEqualTo(testSourceSchemaReference);
     assertThat(sourceSchema.tableSchemas().size()).isEqualTo(1);
@@ -155,7 +156,8 @@ public class JdbcIoWrapperTest {
                 .setJdbcDriverJars("")
                 .setJdbcDriverClassName("org.apache.derby.jdbc.EmbeddedDriver")
                 .setDialectAdapter(mockDialectAdapter)
-                .build());
+                .build(),
+            null);
     SourceSchema sourceSchema = jdbcIoWrapper.discoverTableSchema();
     assertThat(sourceSchema.schemaReference()).isEqualTo(testSourceSchemaReference);
     assertThat(sourceSchema.tableSchemas().size()).isEqualTo(1);
@@ -209,7 +211,8 @@ public class JdbcIoWrapperTest {
                     .setJdbcDriverJars("")
                     .setJdbcDriverClassName("org.apache.derby.jdbc.EmbeddedDriver")
                     .setDialectAdapter(mockDialectAdapter)
-                    .build()));
+                    .build(),
+                null));
     /* No Numeric Index on table */
     assertThrows(
         SuitableIndexNotFoundException.class,
@@ -227,7 +230,8 @@ public class JdbcIoWrapperTest {
                     .setJdbcDriverJars("")
                     .setJdbcDriverClassName("org.apache.derby.jdbc.EmbeddedDriver")
                     .setDialectAdapter(mockDialectAdapter)
-                    .build()));
+                    .build(),
+                null));
   }
 
   @Test

@@ -28,7 +28,6 @@ import com.google.cloud.teleport.v2.spanner.migrations.exceptions.InvalidOptions
 import com.google.cloud.teleport.v2.spanner.migrations.schema.ISchemaMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.IdentityMapper;
 import com.google.cloud.teleport.v2.spanner.migrations.schema.SessionBasedMapper;
-import com.google.cloud.teleport.v2.spanner.migrations.shard.Shard;
 import com.google.cloud.teleport.v2.spanner.migrations.spanner.SpannerSchema;
 import com.google.cloud.teleport.v2.spanner.migrations.transformation.CustomTransformation;
 import com.google.cloud.teleport.v2.transformer.SourceRowToMutationDoFn;
@@ -38,7 +37,6 @@ import com.google.common.annotations.VisibleForTesting;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 import org.apache.beam.repackaged.core.org.apache.commons.lang3.StringUtils;
@@ -47,6 +45,7 @@ import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
+import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
@@ -68,13 +67,24 @@ public class PipelineController {
 
     List<String> tablesToMigrate =
         PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
-    // Read data from source
-    ReaderImpl reader =
-        ReaderImpl.of(
-            JdbcIoWrapper.of(
-                OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
-                    options, tablesToMigrate, null)));
-    migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
+    List<List<String>> levelledTablesToMigrate =
+        List.of(List.of("AllDatatypeTransformation"), List.of("bigint_table"));
+
+    PCollection<Void> previousLevelCompletion = null;
+    for (List<String> levelTables : levelledTablesToMigrate) {
+      // Create Reader per level.
+      ReaderImpl reader =
+          ReaderImpl.of(
+              JdbcIoWrapper.of(
+                  OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
+                      options, levelTables, null),
+                  previousLevelCompletion));
+
+      // Wait for the previous level's completion.
+      previousLevelCompletion =
+          migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
+    }
+
     return pipeline.run();
   }
 
@@ -89,7 +99,7 @@ public class PipelineController {
    * @param reader
    * @param shardId
    */
-  private static void migrateForReader(
+  private static PCollection<Void> migrateForReader(
       SourceDbToSpannerOptions options,
       Pipeline pipeline,
       SpannerConfig spannerConfig,
@@ -128,11 +138,13 @@ public class PipelineController {
 
     // Write to Spanner
     SpannerWriter writer = new SpannerWriter(spannerConfig);
-    PCollection<MutationGroup> failedMutations =
+
+    SpannerWriteResult spannerWriteResult =
         writer.writeToSpanner(
             transformationResult
                 .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
                 .setCoder(SerializableCoder.of(RowContext.class)));
+    PCollection<MutationGroup> failedMutations = spannerWriteResult.getFailedMutations();
 
     String outputDirectory = options.getOutputDirectory();
     if (!outputDirectory.endsWith("/")) {
@@ -158,53 +170,54 @@ public class PipelineController {
         transformationResult
             .get(SourceDbToSpannerConstants.FILTERED_EVENT_TAG)
             .setCoder(SerializableCoder.of(RowContext.class)));
+    return spannerWriteResult.getOutput();
   }
 
-  static PipelineResult executeShardedMigration(
-      SourceDbToSpannerOptions options,
-      Pipeline pipeline,
-      List<Shard> shards,
-      SpannerConfig spannerConfig) {
-    // TODO
-    // Merge logical shards into 1 physical shard
-    // Populate completion per shard
-    // Take connection properties map
-    // Write to common DLQ ?
-
-    Ddl ddl = SpannerSchema.getInformationSchemaAsDdl(spannerConfig);
-    ISchemaMapper schemaMapper = PipelineController.getSchemaMapper(options, ddl);
-
-    List<String> tablesToMigrate =
-        PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
-
-    LOG.info(
-        "running migration for shards: {}",
-        shards.stream().map(s -> s.getHost()).collect(Collectors.toList()));
-    for (Shard shard : shards) {
-      for (Map.Entry<String, String> entry : shard.getDbNameToLogicalShardIdMap().entrySet()) {
-        // Read data from source
-        ReaderImpl reader =
-            ReaderImpl.of(
-                JdbcIoWrapper.of(
-                    OptionsToConfigBuilder.getJdbcIOWrapperConfig(
-                        tablesToMigrate,
-                        null,
-                        shard.getHost(),
-                        Integer.parseInt(shard.getPort()),
-                        shard.getUserName(),
-                        shard.getPassword(),
-                        entry.getKey(),
-                        entry.getValue(),
-                        options.getJdbcDriverClassName(),
-                        options.getJdbcDriverJars(),
-                        options.getMaxConnections(),
-                        options.getNumPartitions())));
-        migrateForReader(
-            options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
-      }
-    }
-    return pipeline.run();
-  }
+  //  static PipelineResult executeShardedMigration(
+  //      SourceDbToSpannerOptions options,
+  //      Pipeline pipeline,
+  //      List<Shard> shards,
+  //      SpannerConfig spannerConfig) {
+  //    // TODO
+  //    // Merge logical shards into 1 physical shard
+  //    // Populate completion per shard
+  //    // Take connection properties map
+  //    // Write to common DLQ ?
+  //
+  //    Ddl ddl = SpannerSchema.getInformationSchemaAsDdl(spannerConfig);
+  //    ISchemaMapper schemaMapper = PipelineController.getSchemaMapper(options, ddl);
+  //
+  //    List<String> tablesToMigrate =
+  //        PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
+  //
+  //    LOG.info(
+  //        "running migration for shards: {}",
+  //        shards.stream().map(s -> s.getHost()).collect(Collectors.toList()));
+  //    for (Shard shard : shards) {
+  //      for (Map.Entry<String, String> entry : shard.getDbNameToLogicalShardIdMap().entrySet()) {
+  //        // Read data from source
+  //        ReaderImpl reader =
+  //            ReaderImpl.of(
+  //                JdbcIoWrapper.of(
+  //                    OptionsToConfigBuilder.getJdbcIOWrapperConfig(
+  //                        tablesToMigrate,
+  //                        null,
+  //                        shard.getHost(),
+  //                        Integer.parseInt(shard.getPort()),
+  //                        shard.getUserName(),
+  //                        shard.getPassword(),
+  //                        entry.getKey(),
+  //                        entry.getValue(),
+  //                        options.getJdbcDriverClassName(),
+  //                        options.getJdbcDriverJars(),
+  //                        options.getMaxConnections(),
+  //                        options.getNumPartitions())));
+  //        migrateForReader(
+  //            options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
+  //      }
+  //    }
+  //    return pipeline.run();
+  //  }
 
   @VisibleForTesting
   static SpannerConfig createSpannerConfig(SourceDbToSpannerOptions options) {

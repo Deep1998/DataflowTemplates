@@ -19,11 +19,7 @@ import com.google.cloud.teleport.metadata.Template;
 import com.google.cloud.teleport.metadata.TemplateCategory;
 import com.google.cloud.teleport.v2.common.UncaughtExceptionLogger;
 import com.google.cloud.teleport.v2.options.SourceDbToSpannerOptions;
-import com.google.cloud.teleport.v2.spanner.migrations.shard.Shard;
-import com.google.cloud.teleport.v2.spanner.migrations.utils.SecretManagerAccessorImpl;
-import com.google.cloud.teleport.v2.spanner.migrations.utils.ShardFileReader;
 import com.google.common.annotations.VisibleForTesting;
-import java.util.List;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
@@ -102,14 +98,14 @@ public class SourceDbToSpanner {
     SpannerConfig spannerConfig = createSpannerConfig(options);
 
     // Decide type and source of migration
-    if (options.getSourceDbURL().startsWith("gs://")) {
-      List<Shard> shards =
-          new ShardFileReader(new SecretManagerAccessorImpl())
-              .readForwardMigrationShardingConfig(options.getSourceDbURL());
-      return PipelineController.executeShardedMigration(options, pipeline, shards, spannerConfig);
-    } else {
+//    if (options.getSourceDbURL().startsWith("gs://")) {
+//      List<Shard> shards =
+//          new ShardFileReader(new SecretManagerAccessorImpl())
+//              .readForwardMigrationShardingConfig(options.getSourceDbURL());
+//      return PipelineController.executeShardedMigration(options, pipeline, shards, spannerConfig);
+//    } else {
       return PipelineController.executeSingleInstanceMigration(options, pipeline, spannerConfig);
-    }
+//    }
   }
 
   @VisibleForTesting
