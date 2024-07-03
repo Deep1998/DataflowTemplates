@@ -37,9 +37,12 @@ import com.google.cloud.teleport.v2.writer.SpannerWriter;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.beam.repackaged.core.org.apache.commons.lang3.StringUtils;
 import org.apache.beam.sdk.Pipeline;
@@ -47,6 +50,7 @@ import org.apache.beam.sdk.PipelineResult;
 import org.apache.beam.sdk.coders.SerializableCoder;
 import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
+import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
@@ -68,14 +72,63 @@ public class PipelineController {
 
     List<String> tablesToMigrate =
         PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
+    Set<String> tablesToMigrateSet = new HashSet<>(tablesToMigrate);
+
     // Read data from source
+    List<String> orderedSpTables = ddl.getTablesOrderedByReference();
+
+    Map<String, PCollection<Void>> cache = new HashMap<>();
+    Set<String> processingTables = new HashSet<>();
+    for (String table : tablesToMigrate) {
+      getOutputForTable(
+          cache, processingTables, table, options, pipeline, spannerConfig, ddl, schemaMapper);
+    }
+    return pipeline.run();
+  }
+
+  private static PCollection<Void> getOutputForTable(
+      Map<String, PCollection<Void>> cache,
+      Set<String> processingTables,
+      String srcTableName,
+      SourceDbToSpannerOptions options,
+      Pipeline pipeline,
+      SpannerConfig spannerConfig,
+      Ddl ddl,
+      ISchemaMapper schemaMapper) {
+    if (cache.containsKey(srcTableName)) {
+      return cache.get(srcTableName);
+    }
+    if (processingTables.contains(srcTableName)) {
+      throw new IllegalStateException(
+          "Cyclic dependency detected! Involved tables: " + processingTables);
+    }
+    processingTables.add(srcTableName);
+    String spTableName = schemaMapper.getSpannerTableName("", srcTableName);
+    List<PCollection<Void>> parentOutputs = new ArrayList<>();
+    for (String parentSpTable : ddl.tablesReferenced(spTableName)) {
+      String parentSrcName = schemaMapper.getSourceTableName("", parentSpTable);
+      parentOutputs.add(
+          getOutputForTable(
+              cache,
+              processingTables,
+              parentSrcName,
+              options,
+              pipeline,
+              spannerConfig,
+              ddl,
+              schemaMapper));
+    }
     ReaderImpl reader =
         ReaderImpl.of(
             JdbcIoWrapper.of(
                 OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
-                    options, tablesToMigrate, null)));
-    migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
-    return pipeline.run();
+                        options, List.of(srcTableName), null)
+                    .setWaitOnSignals(parentOutputs)));
+    PCollection<Void> output =
+        migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
+    cache.put(srcTableName, output);
+    processingTables.remove(srcTableName);
+    return output;
   }
 
   /**
@@ -89,7 +142,7 @@ public class PipelineController {
    * @param reader
    * @param shardId
    */
-  private static void migrateForReader(
+  private static PCollection<Void> migrateForReader(
       SourceDbToSpannerOptions options,
       Pipeline pipeline,
       SpannerConfig spannerConfig,
@@ -128,11 +181,12 @@ public class PipelineController {
 
     // Write to Spanner
     SpannerWriter writer = new SpannerWriter(spannerConfig);
-    PCollection<MutationGroup> failedMutations =
+    SpannerWriteResult spannerWriteResult =
         writer.writeToSpanner(
             transformationResult
                 .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
                 .setCoder(SerializableCoder.of(RowContext.class)));
+    PCollection<MutationGroup> failedMutations = spannerWriteResult.getFailedMutations();
 
     String outputDirectory = options.getOutputDirectory();
     if (!outputDirectory.endsWith("/")) {
@@ -158,6 +212,7 @@ public class PipelineController {
         transformationResult
             .get(SourceDbToSpannerConstants.FILTERED_EVENT_TAG)
             .setCoder(SerializableCoder.of(RowContext.class)));
+    return spannerWriteResult.getOutput();
   }
 
   static PipelineResult executeShardedMigration(
