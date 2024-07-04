@@ -26,6 +26,8 @@ import com.google.cloud.teleport.v2.source.reader.io.schema.SourceSchemaReferenc
 import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.UnifiedTypeMapper.MapperType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import java.io.Serializable;
+import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.util.FluentBackoff;
@@ -36,7 +38,7 @@ import org.apache.beam.sdk.values.PCollection;
  * com.google.cloud.teleport.v2.source.reader.io.jdbc.iowrapper.JdbcIoWrapper JdbcIoWrapper}.
  */
 @AutoValue
-public abstract class JdbcIOWrapperConfig {
+public abstract class JdbcIOWrapperConfig implements Serializable {
 
   /** Source URL. */
   public abstract String sourceDbURL();
@@ -110,7 +112,7 @@ public abstract class JdbcIOWrapperConfig {
    * JdbcIOWrapperConfig#readWithUniformPartitionsFeatureEnabled()} is false. Defaults to null.
    */
   @Nullable
-  public abstract ImmutableList<PCollection<?>> waitOnSignals();
+  public abstract List<PCollection<?>> waitOnSignals();
 
   /**
    * A transform that can be injected to make use of the discovered splits for additional use case
@@ -171,7 +173,7 @@ public abstract class JdbcIOWrapperConfig {
 
     public abstract Builder setReadWithUniformPartitionsFeatureEnabled(Boolean value);
 
-    public abstract Builder setWaitOnSignals(@Nullable ImmutableList<PCollection<?>> value);
+    public abstract Builder setWaitOnSignals(@Nullable List<PCollection<?>> value);
 
     public abstract Builder setRangesPeek(
         @Nullable PTransform<PCollection<ImmutableList<Range>>, ?> value);

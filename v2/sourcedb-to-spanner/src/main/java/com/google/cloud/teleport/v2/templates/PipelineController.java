@@ -78,7 +78,7 @@ public class PipelineController {
     // This list is all Spanner tables topologically ordered.
     List<String> orderedSpTables = ddl.getTablesOrderedByReference();
 
-    Map<String, PCollection<?>> outputs = new HashMap<>();
+    Map<String, PCollection<Void>> outputs = new HashMap<>();
 
     for (String spTable : orderedSpTables) {
       String srcTable = schemaMapper.getSourceTableName("", spTable);
@@ -115,7 +115,7 @@ public class PipelineController {
                   + " could fail, check DLQ for failed records.");
           continue;
         }
-        PCollection<?> parentOutputPcollection = outputs.get(parentSrcName);
+        PCollection<Void> parentOutputPcollection = outputs.get(parentSrcName);
         // Since we are iterating the tables topologically, all parents should have been processed.
         Preconditions.checkState(
             parentOutputPcollection != null,
@@ -127,7 +127,7 @@ public class PipelineController {
               JdbcIoWrapper.of(
                   OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
                       options, List.of(srcTable), null, parentOutputs)));
-      PCollection<?> output =
+      PCollection<Void> output =
           migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
       outputs.put(srcTable, output);
     }
@@ -244,7 +244,7 @@ public class PipelineController {
     for (Shard shard : shards) {
       for (Map.Entry<String, String> entry : shard.getDbNameToLogicalShardIdMap().entrySet()) {
         // Read data from source
-        Map<String, PCollection<?>> outputs = new HashMap<>();
+        Map<String, PCollection<Void>> outputs = new HashMap<>();
         for (String spTable : orderedSpTables) {
           String srcTable = schemaMapper.getSourceTableName("", spTable);
           if (!tablesToMigrateSet.contains(srcTable)) {
@@ -264,7 +264,7 @@ public class PipelineController {
             if (!tablesToMigrateSet.contains(parentSrcName)) {
               continue;
             }
-            PCollection<?> parentOutputPcollection = outputs.get(parentSrcName);
+            PCollection<Void> parentOutputPcollection = outputs.get(parentSrcName);
             // Since we are iterating the tables topologically, all parents should have been
             // processed.
             Preconditions.checkState(
@@ -289,7 +289,7 @@ public class PipelineController {
                           options.getMaxConnections(),
                           options.getNumPartitions(),
                           parentOutputs)));
-          PCollection<?> output =
+          PCollection<Void> output =
               migrateForReader(
                   options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
           outputs.put(srcTable, output);

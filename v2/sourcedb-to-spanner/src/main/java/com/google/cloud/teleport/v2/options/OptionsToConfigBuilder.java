@@ -116,7 +116,7 @@ public final class OptionsToConfigBuilder {
     }
 
     if (waitOnSignals != null) {
-      builder.setWaitOnSignals(ImmutableList.copyOf(waitOnSignals));
+      builder.setWaitOnSignals(waitOnSignals);
     }
 
     builder.setMaxPartitions(numPartitions);
