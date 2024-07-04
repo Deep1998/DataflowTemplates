@@ -56,6 +56,7 @@ import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.TupleTagList;
+import org.apache.beam.vendor.guava.v32_1_2_jre.com.google.common.base.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,61 +75,63 @@ public class PipelineController {
         PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
     Set<String> tablesToMigrateSet = new HashSet<>(tablesToMigrate);
 
-    // Read data from source
+    // This list is all Spanner tables topologically ordered.
     List<String> orderedSpTables = ddl.getTablesOrderedByReference();
 
-    Map<String, PCollection<Void>> cache = new HashMap<>();
-    Set<String> processingTables = new HashSet<>();
-    for (String table : tablesToMigrate) {
-      getOutputForTable(
-          cache, processingTables, table, options, pipeline, spannerConfig, ddl, schemaMapper);
+    Map<String, PCollection<?>> outputs = new HashMap<>();
+
+    for (String spTable : orderedSpTables) {
+      String srcTable = schemaMapper.getSourceTableName("", spTable);
+      if (!tablesToMigrateSet.contains(srcTable)) {
+        continue;
+      }
+      List<PCollection<?>> parentOutputs = new ArrayList<>();
+      for (String parentSpTable : ddl.tablesReferenced(spTable)) {
+        String parentSrcName;
+        try {
+          parentSrcName = schemaMapper.getSourceTableName("", parentSpTable);
+        } catch (NoSuchElementException e) {
+          // This will occur when the spanner table name does not exist in source for
+          // sessionBasedMapper.
+          LOG.warn(
+              spTable
+                  + " references table "
+                  + parentSpTable
+                  + " which does not have an equivalent source table. Writes to "
+                  + spTable
+                  + " could fail, check DLQ for failed records.");
+          continue;
+        }
+        // This parent is not in tables selected for migration.
+        if (!tablesToMigrateSet.contains(parentSrcName)) {
+          LOG.warn(
+              spTable
+                  + " references table "
+                  + parentSpTable
+                  + " which is not selected for migration (Provide the source table name "
+                  + parentSrcName
+                  + " via the 'tables' option if this is a mistake!). Writes to "
+                  + spTable
+                  + " could fail, check DLQ for failed records.");
+          continue;
+        }
+        PCollection<?> parentOutputPcollection = outputs.get(parentSrcName);
+        // Since we are iterating the tables topologically, all parents should have been processed.
+        Preconditions.checkState(
+            parentOutputPcollection != null,
+            "Output PCollection for parent table should not be null.");
+        parentOutputs.add(parentOutputPcollection);
+      }
+      ReaderImpl reader =
+          ReaderImpl.of(
+              JdbcIoWrapper.of(
+                  OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
+                      options, List.of(srcTable), null, parentOutputs)));
+      PCollection<?> output =
+          migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
+      outputs.put(srcTable, output);
     }
     return pipeline.run();
-  }
-
-  private static PCollection<Void> getOutputForTable(
-      Map<String, PCollection<Void>> cache,
-      Set<String> processingTables,
-      String srcTableName,
-      SourceDbToSpannerOptions options,
-      Pipeline pipeline,
-      SpannerConfig spannerConfig,
-      Ddl ddl,
-      ISchemaMapper schemaMapper) {
-    if (cache.containsKey(srcTableName)) {
-      return cache.get(srcTableName);
-    }
-    if (processingTables.contains(srcTableName)) {
-      throw new IllegalStateException(
-          "Cyclic dependency detected! Involved tables: " + processingTables);
-    }
-    processingTables.add(srcTableName);
-    String spTableName = schemaMapper.getSpannerTableName("", srcTableName);
-    List<PCollection<Void>> parentOutputs = new ArrayList<>();
-    for (String parentSpTable : ddl.tablesReferenced(spTableName)) {
-      String parentSrcName = schemaMapper.getSourceTableName("", parentSpTable);
-      parentOutputs.add(
-          getOutputForTable(
-              cache,
-              processingTables,
-              parentSrcName,
-              options,
-              pipeline,
-              spannerConfig,
-              ddl,
-              schemaMapper));
-    }
-    ReaderImpl reader =
-        ReaderImpl.of(
-            JdbcIoWrapper.of(
-                OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
-                        options, List.of(srcTableName), null)
-                    .setWaitOnSignals(parentOutputs)));
-    PCollection<Void> output =
-        migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
-    cache.put(srcTableName, output);
-    processingTables.remove(srcTableName);
-    return output;
   }
 
   /**
@@ -231,6 +234,9 @@ public class PipelineController {
 
     List<String> tablesToMigrate =
         PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
+    Set<String> tablesToMigrateSet = new HashSet<>(tablesToMigrate);
+    // This list is all Spanner tables topologically ordered.
+    List<String> orderedSpTables = ddl.getTablesOrderedByReference();
 
     LOG.info(
         "running migration for shards: {}",
@@ -238,24 +244,56 @@ public class PipelineController {
     for (Shard shard : shards) {
       for (Map.Entry<String, String> entry : shard.getDbNameToLogicalShardIdMap().entrySet()) {
         // Read data from source
-        ReaderImpl reader =
-            ReaderImpl.of(
-                JdbcIoWrapper.of(
-                    OptionsToConfigBuilder.getJdbcIOWrapperConfig(
-                        tablesToMigrate,
-                        null,
-                        shard.getHost(),
-                        Integer.parseInt(shard.getPort()),
-                        shard.getUserName(),
-                        shard.getPassword(),
-                        entry.getKey(),
-                        entry.getValue(),
-                        options.getJdbcDriverClassName(),
-                        options.getJdbcDriverJars(),
-                        options.getMaxConnections(),
-                        options.getNumPartitions())));
-        migrateForReader(
-            options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
+        Map<String, PCollection<?>> outputs = new HashMap<>();
+        for (String spTable : orderedSpTables) {
+          String srcTable = schemaMapper.getSourceTableName("", spTable);
+          if (!tablesToMigrateSet.contains(srcTable)) {
+            continue;
+          }
+          List<PCollection<?>> parentOutputs = new ArrayList<>();
+          for (String parentSpTable : ddl.tablesReferenced(spTable)) {
+            String parentSrcName;
+            try {
+              parentSrcName = schemaMapper.getSourceTableName("", parentSpTable);
+            } catch (NoSuchElementException e) {
+              // This will occur when the spanner table name does not exist in source for
+              // sessionBasedMapper.
+              continue;
+            }
+            // This parent is not in tables selected for migration.
+            if (!tablesToMigrateSet.contains(parentSrcName)) {
+              continue;
+            }
+            PCollection<?> parentOutputPcollection = outputs.get(parentSrcName);
+            // Since we are iterating the tables topologically, all parents should have been
+            // processed.
+            Preconditions.checkState(
+                parentOutputPcollection != null,
+                "Output PCollection for parent table should not be null.");
+            parentOutputs.add(parentOutputPcollection);
+          }
+          ReaderImpl reader =
+              ReaderImpl.of(
+                  JdbcIoWrapper.of(
+                      OptionsToConfigBuilder.getJdbcIOWrapperConfig(
+                          tablesToMigrate,
+                          null,
+                          shard.getHost(),
+                          Integer.parseInt(shard.getPort()),
+                          shard.getUserName(),
+                          shard.getPassword(),
+                          entry.getKey(),
+                          entry.getValue(),
+                          options.getJdbcDriverClassName(),
+                          options.getJdbcDriverJars(),
+                          options.getMaxConnections(),
+                          options.getNumPartitions(),
+                          parentOutputs)));
+          PCollection<?> output =
+              migrateForReader(
+                  options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
+          outputs.put(srcTable, output);
+        }
       }
     }
     return pipeline.run();
