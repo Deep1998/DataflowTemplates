@@ -20,11 +20,11 @@ import com.google.cloud.teleport.v2.source.reader.io.schema.SourceSchema;
 import com.google.cloud.teleport.v2.source.reader.io.schema.SourceTableReference;
 import com.google.common.collect.ImmutableMap;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 
 public interface IoWrapper {
-  ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> getTableReaders();
+  ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
+      getTableReaders();
 
   SourceSchema discoverTableSchema();
 }

@@ -22,6 +22,7 @@ import java.io.Serializable;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.Count;
+import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.TupleTag;
@@ -49,7 +50,8 @@ public class AccumulatingTableReaderTest implements Serializable {
     var accumulatingTableReader =
         readerTransformTestUtils.getTestAccumulatingReader(
             sourceRowTupleTag, sourceTableReferenceTupleTag);
-    PCollectionTuple results = testPipeline.apply("ReaderUnderTest", accumulatingTableReader);
+    PCollectionTuple results =
+        testPipeline.apply(Create.of("dummy")).apply("ReaderUnderTest", accumulatingTableReader);
 
     PCollection<Long> rowsCount = results.get(sourceRowTupleTag).apply(Count.globally());
     PAssert.that(rowsCount).containsInAnyOrder(tableCount * rowCountPerTable);

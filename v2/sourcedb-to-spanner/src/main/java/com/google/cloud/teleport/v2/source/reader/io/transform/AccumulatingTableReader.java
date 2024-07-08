@@ -27,7 +27,6 @@ import org.apache.beam.sdk.transforms.MapElements;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.SimpleFunction;
-import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
@@ -38,8 +37,9 @@ import org.apache.beam.sdk.values.TupleTag;
  * and generate table completions. Please refer to {@link ReaderTransform} for greater details.
  */
 @AutoValue
-abstract class AccumulatingTableReader extends PTransform<PBegin, PCollectionTuple> {
-  public abstract ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>>
+abstract class AccumulatingTableReader extends PTransform<PCollection<String>, PCollectionTuple> {
+  public abstract ImmutableMap<
+          SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
       tableTransforms();
 
   public abstract TupleTag<SourceRow> sourceRowTag();
@@ -47,7 +47,7 @@ abstract class AccumulatingTableReader extends PTransform<PBegin, PCollectionTup
   public abstract TupleTag<SourceTableReference> sourceTableReferenceTag();
 
   @Override
-  public PCollectionTuple expand(PBegin input) {
+  public PCollectionTuple expand(PCollection<String> input) {
     ImmutableMap<SourceTableReference, PCollection<SourceRow>> tablePCollections =
         this.tableTransforms().entrySet().stream()
             .collect(
@@ -101,7 +101,7 @@ abstract class AccumulatingTableReader extends PTransform<PBegin, PCollectionTup
 
     Builder withTableReader(
         SourceTableReference sourceTableReference,
-        PTransform<PBegin, PCollection<SourceRow>> tableReader) {
+        PTransform<PCollection<String>, PCollection<SourceRow>> tableReader) {
       this.tableTransformsBuilder().put(sourceTableReference, tableReader);
       return this;
     }

@@ -39,7 +39,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.sql.SQLException;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -112,7 +111,7 @@ public class JdbcIoWrapperTest {
     assertThat(tableSchema.tableName()).isEqualTo("testTable");
     assertThat(tableSchema.sourceColumnNameToSourceColumnType())
         .isEqualTo(ImmutableMap.of(testCol, testColType));
-    ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> tableReaders =
+    ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>> tableReaders =
         jdbcIoWrapper.getTableReaders();
     assertThat(tableReaders.size()).isEqualTo(1);
   }
@@ -163,7 +162,7 @@ public class JdbcIoWrapperTest {
     assertThat(tableSchema.tableName()).isEqualTo("testTable");
     assertThat(tableSchema.sourceColumnNameToSourceColumnType())
         .isEqualTo(ImmutableMap.of(testCol, testColType));
-    ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> tableReaders =
+    ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>> tableReaders =
         jdbcIoWrapper.getTableReaders();
     assertThat(tableReaders.size()).isEqualTo(1);
   }

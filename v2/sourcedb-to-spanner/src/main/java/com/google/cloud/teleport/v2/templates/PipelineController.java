@@ -52,7 +52,9 @@ import org.apache.beam.sdk.io.gcp.spanner.MutationGroup;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.options.ValueProvider;
+import org.apache.beam.sdk.transforms.Create;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.TupleTagList;
@@ -126,9 +128,13 @@ public class PipelineController {
           ReaderImpl.of(
               JdbcIoWrapper.of(
                   OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
-                      options, List.of(srcTable), null, parentOutputs)));
+                      options, List.of(srcTable), null)));
+      PCollection<String> input = pipeline.apply(Create.of("dummy"));
+      if (parentOutputs.size() > 0) {
+        input = input.apply(Wait.on(parentOutputs));
+      }
       PCollection<Void> output =
-          migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
+          migrateForReader(options, input, spannerConfig, ddl, schemaMapper, reader, "");
       outputs.put(srcTable, output);
     }
     return pipeline.run();
@@ -138,7 +144,7 @@ public class PipelineController {
    * Perform migration for a given reader. This created a separate dag on dataflow per reader.
    *
    * @param options
-   * @param pipeline
+   * @param input
    * @param spannerConfig
    * @param ddl
    * @param schemaMapper
@@ -147,7 +153,7 @@ public class PipelineController {
    */
   private static PCollection<Void> migrateForReader(
       SourceDbToSpannerOptions options,
-      Pipeline pipeline,
+      PCollection<String> input,
       SpannerConfig spannerConfig,
       Ddl ddl,
       ISchemaMapper schemaMapper,
@@ -159,7 +165,7 @@ public class PipelineController {
     ReaderTransform readerTransform = reader.getReaderTransform();
 
     PCollectionTuple rowsAndTables =
-        pipeline.apply("Read_rows" + shardIdSuffix, readerTransform.readTransform());
+        input.apply("Read_rows" + shardIdSuffix, readerTransform.readTransform());
     PCollection<SourceRow> sourceRows = rowsAndTables.get(readerTransform.sourceRowTag());
 
     CustomTransformation customTransformation =
@@ -287,11 +293,14 @@ public class PipelineController {
                           options.getJdbcDriverClassName(),
                           options.getJdbcDriverJars(),
                           options.getMaxConnections(),
-                          options.getNumPartitions(),
-                          parentOutputs)));
+                          options.getNumPartitions())));
+          PCollection<String> input = pipeline.apply(Create.of("dummy"));
+          if (parentOutputs.size() > 0) {
+            input = input.apply(Wait.on(parentOutputs));
+          }
           PCollection<Void> output =
               migrateForReader(
-                  options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
+                  options, input, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
           outputs.put(srcTable, output);
         }
       }

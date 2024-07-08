@@ -26,9 +26,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.UUID;
 import java.util.stream.LongStream;
-import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.PBegin;
+import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.TupleTag;
 
@@ -99,7 +99,7 @@ public class ReaderTransformTestUtils implements Serializable {
     return this.sourceTableSchemas;
   }
 
-  class TestTableReaderTransform extends PTransform<PBegin, PCollection<SourceRow>> {
+  class TestTableReaderTransform extends PTransform<PCollection<String>, PCollection<SourceRow>> {
     SourceSchemaReference sourceSchemaReference;
 
     SourceTableSchema sourceTableSchema;
@@ -115,7 +115,7 @@ public class ReaderTransformTestUtils implements Serializable {
     }
 
     @Override
-    public PCollection<SourceRow> expand(PBegin input) {
+    public PCollection<SourceRow> expand(PCollection<String> input) {
 
       ArrayList<SourceRow> sourceRows = new ArrayList<>();
       for (int i = 0; i < this.rowCount; i++) {
@@ -125,7 +125,16 @@ public class ReaderTransformTestUtils implements Serializable {
                 .setField("lastName", UUID.randomUUID().toString())
                 .build());
       }
-      return input.apply(Create.of(sourceRows));
+      return input.apply(
+          ParDo.of(
+              new DoFn<String, SourceRow>() {
+                @DoFn.ProcessElement
+                public void processElement(ProcessContext c) {
+                  for (SourceRow row : sourceRows) {
+                    c.output(row);
+                  }
+                }
+              }));
     }
 
     long testTime() {

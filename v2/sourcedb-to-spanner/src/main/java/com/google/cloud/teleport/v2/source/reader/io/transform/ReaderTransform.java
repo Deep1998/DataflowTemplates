@@ -20,7 +20,6 @@ import com.google.cloud.teleport.v2.source.reader.io.row.SourceRow;
 import com.google.cloud.teleport.v2.source.reader.io.schema.SourceTableReference;
 import java.io.Serializable;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.TupleTag;
@@ -62,7 +61,7 @@ public abstract class ReaderTransform implements Serializable {
 
   public abstract TupleTag<SourceTableReference> sourceTableReferenceTag();
 
-  public abstract PTransform<PBegin, PCollectionTuple> readTransform();
+  public abstract PTransform<PCollection<String>, PCollectionTuple> readTransform();
 
   public static Builder builder() {
     TupleTag<SourceRow> sourceRowTupleTag = new TupleTag<>();
@@ -86,7 +85,7 @@ public abstract class ReaderTransform implements Serializable {
 
     abstract Builder setSourceTableReferenceTag(TupleTag<SourceTableReference> value);
 
-    abstract Builder setReadTransform(PTransform<PBegin, PCollectionTuple> value);
+    abstract Builder setReadTransform(PTransform<PCollection<String>, PCollectionTuple> value);
 
     abstract ReaderTransform autoBuild();
 
@@ -94,7 +93,7 @@ public abstract class ReaderTransform implements Serializable {
 
     public void withTableReader(
         SourceTableReference sourceTableReference,
-        PTransform<PBegin, PCollection<SourceRow>> tableReader) {
+        PTransform<PCollection<String>, PCollection<SourceRow>> tableReader) {
       this.readTransformBuilder.withTableReader(sourceTableReference, tableReader);
     }
 

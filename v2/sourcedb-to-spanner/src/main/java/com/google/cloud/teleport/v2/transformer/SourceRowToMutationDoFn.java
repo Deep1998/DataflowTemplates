@@ -105,7 +105,6 @@ public abstract class SourceRowToMutationDoFn extends DoFn<SourceRow, RowContext
       output
           .get(SourceDbToSpannerConstants.ROW_TRANSFORMATION_SUCCESS)
           .output(RowContext.builder().setRow(sourceRow).setMutation(mutation).build());
-      LOG.debug("Finished row for table: {}", srcTableName);
     } catch (Exception e) {
       transformerErrors.inc();
       output

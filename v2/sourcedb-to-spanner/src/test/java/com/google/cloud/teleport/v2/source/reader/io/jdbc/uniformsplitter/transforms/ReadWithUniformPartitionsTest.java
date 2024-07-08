@@ -42,18 +42,15 @@ import com.google.common.collect.ImmutableList;
 import java.io.Serializable;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Iterator;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.io.jdbc.JdbcIO.RowMapper;
 import org.apache.beam.sdk.testing.PAssert;
 import org.apache.beam.sdk.testing.TestPipeline;
 import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.values.PCollection;
-import org.apache.beam.sdk.values.PCollectionList;
 import org.checkerframework.checker.initialization.qual.Initialized;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -99,7 +96,7 @@ public class ReadWithUniformPartitionsTest implements Serializable {
         };
     TestRangesPeek testRangesPeek = new TestRangesPeek(testRangesPeekVerification);
     ReadWithUniformPartitions readWithUniformPartitions =
-        getReadWithUniformPartitionsForTest(100L, 10L, testRangesPeek, null, null);
+        getReadWithUniformPartitionsForTest(100L, 10L, testRangesPeek, null);
 
     PCollection<String> output =
         (PCollection<String>) testPipeline.apply(readWithUniformPartitions);
@@ -125,7 +122,7 @@ public class ReadWithUniformPartitionsTest implements Serializable {
     TestRangesPeek testRangesPeek = new TestRangesPeek(testRangesPeekVerification);
 
     ReadWithUniformPartitions readWithUniformPartitions =
-        getReadWithUniformPartitionsForTest(6L, 1L, testRangesPeek, null, null);
+        getReadWithUniformPartitionsForTest(6L, 1L, testRangesPeek, null);
     PCollection<String> output =
         (PCollection<String>) testPipeline.apply(readWithUniformPartitions);
 
@@ -151,68 +148,12 @@ public class ReadWithUniformPartitionsTest implements Serializable {
     TestRangesPeek testRangesPeek = new TestRangesPeek(testRangesPeekVerification);
 
     ReadWithUniformPartitions readWithUniformPartitions =
-        getReadWithUniformPartitionsForTest(6L, 3L, testRangesPeek, null, null);
+        getReadWithUniformPartitionsForTest(6L, 3L, testRangesPeek, null);
     PCollection<String> output =
         (PCollection<String>) testPipeline.apply(readWithUniformPartitions);
 
     PAssert.that(output)
         .containsInAnyOrder("Data A", "Data B", "Data C", "Data D", "Data E", "Data F");
-    testPipeline.run().waitUntilFinish();
-  }
-
-  @Test
-  public void testReadWithUniformPartitionsWithWait() throws Exception {
-    // We do two reads with the second-one waiting for first.
-
-    Range firstRead =
-        Range.builder()
-            .setColName("col1")
-            .setColClass(Integer.class)
-            .setStart(25)
-            .setEnd(40)
-            .setIsFirst(true)
-            .setIsLast(true)
-            .setBoundarySplitter(BoundarySplitterFactory.create(Integer.class))
-            .build();
-    Range secondRead = firstRead.toBuilder().setStart(10).setEnd(15).build();
-
-    ReadWithUniformPartitions readWithUniformPartitionsFirst =
-        getReadWithUniformPartitionsForTest(6L, 2L, null, firstRead, null);
-    PCollection<String> firstReadRows =
-        (PCollection<String>) testPipeline.apply("firstRead", readWithUniformPartitionsFirst);
-
-    ReadWithUniformPartitions readWithUniformPartitionsSecond =
-        getReadWithUniformPartitionsForTest(
-            6L, 2L, null, secondRead, ImmutableList.of(firstReadRows));
-    PCollection<String> secondReadRows =
-        (PCollection<String>) testPipeline.apply("secondRead", readWithUniformPartitionsSecond);
-
-    var output =
-        PCollectionList.of(secondReadRows).and(firstReadRows).apply(Flatten.pCollections());
-
-    // We check that the rows read in first read appear before the rows in second read.
-    PAssert.that(output)
-        .satisfies(
-            new SerializableFunction<Iterable<String>, Void>() {
-              @Override
-              public Void apply(Iterable<String> input) {
-                ImmutableList.Builder<String> firstFour = ImmutableList.builder();
-                ImmutableList.Builder<String> lastTwo = ImmutableList.builder();
-                Iterator<String> iterator = input.iterator();
-                for (int i = 0; i < 4; i++) {
-                  firstFour.add(iterator.next());
-                }
-                while (iterator.hasNext()) {
-                  lastTwo.add(iterator.next());
-                }
-                assertThat(firstFour.build())
-                    .containsExactlyElementsIn(
-                        ImmutableList.of("Data C", "Data D", "Data E", "Data F"));
-                assertThat(lastTwo.build())
-                    .containsExactlyElementsIn(ImmutableList.of("Data A", "Data B"));
-                return null;
-              }
-            });
     testPipeline.run().waitUntilFinish();
   }
 
@@ -224,10 +165,10 @@ public class ReadWithUniformPartitionsTest implements Serializable {
   public void testMaxPartitionAutoInference() {
     // Small Row Count
     ReadWithUniformPartitions readWithUniformPartitionsSmallRowCount =
-        getReadWithUniformPartitionsForTest(64L, null, null, null, null);
+        getReadWithUniformPartitionsForTest(64L, null, null, null);
     // Large RoCount
     ReadWithUniformPartitions readWithUniformPartitionsLargeRowCount =
-        getReadWithUniformPartitionsForTest(1_000_000_000L /* 1 billion */, null, null, null, null);
+        getReadWithUniformPartitionsForTest(1_000_000_000L /* 1 billion */, null, null, null);
     assertThat(readWithUniformPartitionsSmallRowCount.maxPartitionsHint()).isEqualTo(1L);
     assertThat(readWithUniformPartitionsLargeRowCount.maxPartitionsHint()).isEqualTo(3162L);
   }
@@ -254,7 +195,7 @@ public class ReadWithUniformPartitionsTest implements Serializable {
 
     assertThrows(
         IllegalStateException.class,
-        () -> getReadWithUniformPartitionsForTest(100L, null, null, initialRange, null));
+        () -> getReadWithUniformPartitionsForTest(100L, null, null, initialRange));
   }
 
   @Test
@@ -270,8 +211,7 @@ public class ReadWithUniformPartitionsTest implements Serializable {
       long approximateTotalCount,
       @Nullable Long maxPartitionHint,
       @Nullable TestRangesPeek testRangesPeek,
-      @Nullable Range initialRange,
-      @Nullable ImmutableList<PCollection<?>> waitOnSignals) {
+      @Nullable Range initialRange) {
 
     ReadWithUniformPartitions.Builder<String> readWithPartitionBuilder =
         ReadWithUniformPartitions.<String>builder()
@@ -306,9 +246,6 @@ public class ReadWithUniformPartitionsTest implements Serializable {
           readWithPartitionBuilder
               .setMaxPartitionsHint(maxPartitionHint)
               .setAutoAdjustMaxPartitions(false);
-    }
-    if (waitOnSignals != null) {
-      readWithPartitionBuilder = readWithPartitionBuilder.setWaitOnSignals(waitOnSignals);
     }
     return readWithPartitionBuilder.build();
   }

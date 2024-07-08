@@ -43,14 +43,9 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.io.jdbc.JdbcIO.DataSourceConfiguration;
-import org.apache.beam.sdk.io.jdbc.JdbcIO.ReadWithPartitions;
 import org.apache.beam.sdk.options.ValueProvider.StaticValueProvider;
 import org.apache.beam.sdk.transforms.PTransform;
-import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
-import org.checkerframework.checker.initialization.qual.Initialized;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.UnknownKeyFor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,7 +56,8 @@ import org.slf4j.LoggerFactory;
 public final class JdbcIoWrapper implements IoWrapper {
   private static final Logger LOG = LoggerFactory.getLogger(JdbcIoWrapper.class);
 
-  private final ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>>
+  private final ImmutableMap<
+          SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
       tableReaders;
   private final SourceSchema sourceSchema;
 
@@ -87,8 +83,9 @@ public final class JdbcIoWrapper implements IoWrapper {
     ImmutableList<TableConfig> tableConfigs =
         autoInferTableConfigs(config, schemaDiscovery, dataSource);
     SourceSchema sourceSchema = getSourceSchema(config, schemaDiscovery, dataSource, tableConfigs);
-    ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> tableReaders =
-        buildTableReaders(config, tableConfigs, dataSourceConfiguration, sourceSchema);
+    ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
+        tableReaders =
+            buildTableReaders(config, tableConfigs, dataSourceConfiguration, sourceSchema);
     return new JdbcIoWrapper(tableReaders, sourceSchema);
   }
 
@@ -98,7 +95,7 @@ public final class JdbcIoWrapper implements IoWrapper {
    * @return Read transforms.
    */
   @Override
-  public ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>>
+  public ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
       getTableReaders() {
     return this.tableReaders;
   }
@@ -113,7 +110,7 @@ public final class JdbcIoWrapper implements IoWrapper {
     return this.sourceSchema;
   }
 
-  static ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>>
+  static ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
       buildTableReaders(
           JdbcIOWrapperConfig config,
           ImmutableList<TableConfig> tableConfigs,
@@ -130,19 +127,12 @@ public final class JdbcIoWrapper implements IoWrapper {
                       .setSourceTableName(sourceTableSchema.tableName())
                       .setSourceTableSchemaUUID(sourceTableSchema.tableSchemaUUID())
                       .build(),
-                  (config.readWithUniformPartitionsFeatureEnabled())
-                      ? getReadWithUniformPartitionIO(
-                          config,
-                          dataSourceConfiguration,
-                          sourceSchema.schemaReference(),
-                          tableConfig,
-                          sourceTableSchema)
-                      : getJdbcIO(
-                          config,
-                          dataSourceConfiguration,
-                          sourceSchema.schemaReference(),
-                          tableConfig,
-                          sourceTableSchema));
+                  getReadWithUniformPartitionIO(
+                      config,
+                      dataSourceConfiguration,
+                      sourceSchema.schemaReference(),
+                      tableConfig,
+                      sourceTableSchema));
             })
         .collect(ImmutableMap.toImmutableMap(Map.Entry::getKey, Map.Entry::getValue));
   }
@@ -298,39 +288,6 @@ public final class JdbcIoWrapper implements IoWrapper {
   }
 
   /**
-   * Private helper to construct {@link JdbcIO} as per the reader configuration.
-   *
-   * @param config Configuration.
-   * @param dataSourceConfiguration dataSourceConfiguration (which is derived earlier from the
-   *     reader configuration)
-   * @param tableConfig discovered table configurations.
-   * @param sourceTableSchema schema of the source table.
-   * @return
-   */
-  private static PTransform<PBegin, PCollection<SourceRow>> getJdbcIO(
-      JdbcIOWrapperConfig config,
-      DataSourceConfiguration dataSourceConfiguration,
-      SourceSchemaReference sourceSchemaReference,
-      TableConfig tableConfig,
-      SourceTableSchema sourceTableSchema) {
-    ReadWithPartitions<SourceRow, @UnknownKeyFor @NonNull @Initialized Long> jdbcIO =
-        JdbcIO.<SourceRow>readWithPartitions()
-            .withTable(tableConfig.tableName())
-            .withPartitionColumn(tableConfig.partitionColumns().get(0).columnName())
-            .withDataSourceProviderFn(JdbcIO.PoolableDataSourceProvider.of(dataSourceConfiguration))
-            .withRowMapper(
-                new JdbcSourceRowMapper(
-                    config.valueMappingsProvider(),
-                    sourceSchemaReference,
-                    sourceTableSchema,
-                    config.shardID()));
-    if (tableConfig.maxPartitions() != null) {
-      jdbcIO = jdbcIO.withNumPartitions(tableConfig.maxPartitions());
-    }
-    return jdbcIO;
-  }
-
-  /**
    * Private helper to construct {@link ReadWithUniformPartitions} as per the reader configuration.
    *
    * @param config Configuration.
@@ -340,12 +297,13 @@ public final class JdbcIoWrapper implements IoWrapper {
    * @param sourceTableSchema schema of the source table.
    * @return
    */
-  private static PTransform<PBegin, PCollection<SourceRow>> getReadWithUniformPartitionIO(
-      JdbcIOWrapperConfig config,
-      DataSourceConfiguration dataSourceConfiguration,
-      SourceSchemaReference sourceSchemaReference,
-      TableConfig tableConfig,
-      SourceTableSchema sourceTableSchema) {
+  private static PTransform<PCollection<String>, PCollection<SourceRow>>
+      getReadWithUniformPartitionIO(
+          JdbcIOWrapperConfig config,
+          DataSourceConfiguration dataSourceConfiguration,
+          SourceSchemaReference sourceSchemaReference,
+          TableConfig tableConfig,
+          SourceTableSchema sourceTableSchema) {
 
     ReadWithUniformPartitions.Builder<SourceRow> readWithUniformPartitionsBuilder =
         ReadWithUniformPartitions.<SourceRow>builder()
@@ -360,7 +318,6 @@ public final class JdbcIoWrapper implements IoWrapper {
                     sourceSchemaReference,
                     sourceTableSchema,
                     config.shardID()))
-            .setWaitOnSignals(config.waitOnSignals())
             // TODO(vardhanvthigle): if index is not of the type of a single auto incrementing key,
             // don't set this.
             .setSplitStageCountHint(4L)
@@ -417,7 +374,8 @@ public final class JdbcIoWrapper implements IoWrapper {
    *     Beam classes like {@link JdbcIO}
    */
   private JdbcIoWrapper(
-      ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> tableReaders,
+      ImmutableMap<SourceTableReference, PTransform<PCollection<String>, PCollection<SourceRow>>>
+          tableReaders,
       SourceSchema sourceSchema) {
     this.tableReaders = tableReaders;
     this.sourceSchema = sourceSchema;

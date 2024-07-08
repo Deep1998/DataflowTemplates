@@ -27,7 +27,6 @@ import com.google.cloud.teleport.v2.source.reader.io.schema.typemapping.UnifiedT
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import java.io.Serializable;
-import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.util.FluentBackoff;
@@ -108,13 +107,6 @@ public abstract class JdbcIOWrapperConfig implements Serializable {
   public abstract Boolean readWithUniformPartitionsFeatureEnabled();
 
   /**
-   * PCollections to wait on before doing the read of configured tables. Ignored if {@link
-   * JdbcIOWrapperConfig#readWithUniformPartitionsFeatureEnabled()} is false. Defaults to null.
-   */
-  @Nullable
-  public abstract List<PCollection<?>> waitOnSignals();
-
-  /**
    * A transform that can be injected to make use of the discovered splits for additional use case
    * like creating split points on spanner before the actual read. Ignored if {@link
    * JdbcIOWrapperConfig#readWithUniformPartitionsFeatureEnabled()} is false. Defaults to null.
@@ -172,8 +164,6 @@ public abstract class JdbcIOWrapperConfig implements Serializable {
     public abstract Builder setSqlInitSeq(ImmutableList<String> value);
 
     public abstract Builder setReadWithUniformPartitionsFeatureEnabled(Boolean value);
-
-    public abstract Builder setWaitOnSignals(@Nullable List<PCollection<?>> value);
 
     public abstract Builder setRangesPeek(
         @Nullable PTransform<PCollection<ImmutableList<Range>>, ?> value);

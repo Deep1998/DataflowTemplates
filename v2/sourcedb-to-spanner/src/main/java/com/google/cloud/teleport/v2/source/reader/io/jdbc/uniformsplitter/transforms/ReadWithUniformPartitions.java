@@ -26,18 +26,16 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import java.util.List;
 import javax.annotation.Nullable;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.io.jdbc.JdbcIO;
 import org.apache.beam.sdk.io.jdbc.JdbcIO.PreparedStatementSetter;
-import org.apache.beam.sdk.transforms.Create;
+import org.apache.beam.sdk.transforms.DoFn;
 import org.apache.beam.sdk.transforms.Flatten;
 import org.apache.beam.sdk.transforms.PTransform;
 import org.apache.beam.sdk.transforms.ParDo;
 import org.apache.beam.sdk.transforms.SerializableFunction;
 import org.apache.beam.sdk.transforms.Wait;
-import org.apache.beam.sdk.values.PBegin;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionList;
 import org.apache.beam.sdk.values.PCollectionTuple;
@@ -46,7 +44,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @AutoValue
-public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PCollection<T>> {
+public abstract class ReadWithUniformPartitions<T> extends PTransform<PCollection<String>, PCollection<T>> {
 
   private static final Logger logger = LoggerFactory.getLogger(ReadWithUniformPartitions.class);
 
@@ -81,13 +79,10 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
   abstract PTransform<PCollection<ImmutableList<Range>>, ?> rangesPeek();
 
   @Nullable
-  abstract List<PCollection<?>> waitOnSignals();
-
-  @Nullable
   abstract Range initialRange();
 
   @Override
-  public PCollection<T> expand(PBegin input) {
+  public PCollection<T> expand(PCollection<String> input) {
     // TODO(vardhanvthigle): Implement mapper for strings of various collations as side input.
     BoundaryTypeMapper typeMapper = null;
     // Generate Initial Ranges with liner splits (No need to do execute count queries the DB here)
@@ -140,7 +135,7 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
   }
 
   private PCollection<ImmutableList<Range>> initialSplit(
-      PBegin input, @Nullable BoundaryTypeMapper typeMapper) {
+      PCollection<String> input, @Nullable BoundaryTypeMapper typeMapper) {
 
     RangeBoundaryTransform rangeBoundaryTransform =
         RangeBoundaryTransform.builder()
@@ -163,11 +158,28 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
               .setPartitionColumn(partitionColumns().get(0))
               .setParentRange(null)
               .build();
+
       initialRange =
-          wait(input.apply(Create.of(ImmutableList.of(initialColumn))))
+          input
+              .apply(
+                  ParDo.of(
+                      new DoFn<String, ColumnForBoundaryQuery>() {
+                        @DoFn.ProcessElement
+                        public void processElement(ProcessContext c) {
+                          c.output(initialColumn);
+                        }
+                      }))
               .apply(rangeBoundaryTransform);
     } else {
-      initialRange = wait(input.apply(Create.of(ImmutableList.of(initialRange()))));
+      initialRange =
+          input.apply(
+              ParDo.of(
+                  new DoFn<String, Range>() {
+                    @DoFn.ProcessElement
+                    public void processElement(ProcessContext c) {
+                      c.output(initialRange());
+                    }
+                  }));
     }
 
     return initialRange.apply(
@@ -252,14 +264,6 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
     return name;
   }
 
-  private <V extends PCollection> V wait(V input) {
-    if (waitOnSignals() == null) {
-      return input;
-    } else {
-      return (V) input.apply(Wait.on(waitOnSignals()));
-    }
-  }
-
   private PCollection<ImmutableList<Range>> peekRanges(
       PCollection<ImmutableList<Range>> mergedRanges) {
     if (rangesPeek() == null) {
@@ -309,8 +313,6 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
 
     public abstract Builder<T> setRangesPeek(
         @Nullable PTransform<PCollection<ImmutableList<Range>>, ?> value);
-
-    public abstract Builder<T> setWaitOnSignals(@Nullable List<PCollection<?>> value);
 
     public abstract Builder<T> setInitialRange(Range value);
 
