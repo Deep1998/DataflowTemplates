@@ -360,7 +360,7 @@ public final class JdbcIoWrapper implements IoWrapper {
                     sourceSchemaReference,
                     sourceTableSchema,
                     config.shardID()))
-            .setWaitOnSignals(config.waitOnSignals())
+            .setWaitTransform(config.waitTransform())
             // TODO(vardhanvthigle): if index is not of the type of a single auto incrementing key,
             // don't set this.
             .setSplitStageCountHint(4L)

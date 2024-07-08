@@ -24,7 +24,7 @@ import com.google.common.collect.ImmutableList;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
-import org.apache.beam.sdk.values.PCollection;
+import org.apache.beam.sdk.transforms.Wait;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,7 +50,7 @@ public final class OptionsToConfigBuilder {
         SourceDbToSpannerOptions options,
         List<String> tables,
         String shardId,
-        List<PCollection<?>> waitOnSignals) {
+        Wait.OnSignal<?> waitTransform) {
       String sourceDbURL = options.getSourceDbURL();
       String dbName = extractDbFromURL(sourceDbURL);
       String username = options.getUsername();
@@ -75,7 +75,7 @@ public final class OptionsToConfigBuilder {
           jdbcDriverJars,
           maxConnections,
           numPartitions,
-          waitOnSignals);
+          waitTransform);
     }
   }
 
@@ -92,7 +92,7 @@ public final class OptionsToConfigBuilder {
       String jdbcDriverJars,
       long maxConnections,
       Integer numPartitions,
-      List<PCollection<?>> waitOnSignals) {
+      Wait.OnSignal<?> waitTransform) {
     JdbcIOWrapperConfig.Builder builder = builderWithMySqlDefaults();
     builder =
         builder
@@ -115,8 +115,8 @@ public final class OptionsToConfigBuilder {
       builder.setShardID(shardId);
     }
 
-    if (waitOnSignals != null) {
-      builder.setWaitOnSignals(waitOnSignals);
+    if (waitTransform != null) {
+      builder.setWaitTransform(waitTransform);
     }
 
     builder.setMaxPartitions(numPartitions);

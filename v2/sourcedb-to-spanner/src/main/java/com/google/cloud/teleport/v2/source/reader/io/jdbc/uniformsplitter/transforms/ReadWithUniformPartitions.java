@@ -26,7 +26,6 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import java.util.List;
 import javax.annotation.Nullable;
 import javax.sql.DataSource;
 import org.apache.beam.sdk.io.jdbc.JdbcIO;
@@ -81,7 +80,7 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
   abstract PTransform<PCollection<ImmutableList<Range>>, ?> rangesPeek();
 
   @Nullable
-  abstract List<PCollection<?>> waitOnSignals();
+  abstract Wait.OnSignal<?> waitTransform();
 
   @Nullable
   abstract Range initialRange();
@@ -253,10 +252,10 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
   }
 
   private <V extends PCollection> V wait(V input) {
-    if (waitOnSignals() == null) {
+    if (waitTransform() == null) {
       return input;
     } else {
-      return (V) input.apply(Wait.on(waitOnSignals()));
+      return (V) input.apply(waitTransform());
     }
   }
 
@@ -310,7 +309,7 @@ public abstract class ReadWithUniformPartitions<T> extends PTransform<PBegin, PC
     public abstract Builder<T> setRangesPeek(
         @Nullable PTransform<PCollection<ImmutableList<Range>>, ?> value);
 
-    public abstract Builder<T> setWaitOnSignals(@Nullable List<PCollection<?>> value);
+    public abstract Builder<T> setWaitTransform(@Nullable Wait.OnSignal<?> value);
 
     public abstract Builder<T> setInitialRange(Range value);
 

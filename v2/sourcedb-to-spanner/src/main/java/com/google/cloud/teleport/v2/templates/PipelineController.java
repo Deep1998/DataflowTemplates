@@ -53,6 +53,7 @@ import org.apache.beam.sdk.io.gcp.spanner.SpannerConfig;
 import org.apache.beam.sdk.io.gcp.spanner.SpannerWriteResult;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.transforms.ParDo;
+import org.apache.beam.sdk.transforms.Wait;
 import org.apache.beam.sdk.values.PCollection;
 import org.apache.beam.sdk.values.PCollectionTuple;
 import org.apache.beam.sdk.values.TupleTagList;
@@ -126,7 +127,7 @@ public class PipelineController {
           ReaderImpl.of(
               JdbcIoWrapper.of(
                   OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
-                      options, List.of(srcTable), null, parentOutputs)));
+                      options, List.of(srcTable), null, Wait.on(parentOutputs))));
       PCollection<Void> output =
           migrateForReader(options, pipeline, spannerConfig, ddl, schemaMapper, reader, "");
       outputs.put(srcTable, output);
@@ -288,7 +289,7 @@ public class PipelineController {
                           options.getJdbcDriverJars(),
                           options.getMaxConnections(),
                           options.getNumPartitions(),
-                          parentOutputs)));
+                          Wait.on(parentOutputs))));
           PCollection<Void> output =
               migrateForReader(
                   options, pipeline, spannerConfig, ddl, schemaMapper, reader, entry.getValue());
