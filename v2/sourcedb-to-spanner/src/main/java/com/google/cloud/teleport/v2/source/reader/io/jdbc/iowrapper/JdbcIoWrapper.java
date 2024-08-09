@@ -78,18 +78,25 @@ public final class JdbcIoWrapper implements IoWrapper {
    *     SchemaDiscovery, DataSource)} for details on situation where this is thrown.
    */
   public static JdbcIoWrapper of(JdbcIOWrapperConfig config) throws SuitableIndexNotFoundException {
+    LOG.info("abfdjdbciowrapper: entered JdbcIoWrapper");
     DataSourceConfiguration dataSourceConfiguration = getDataSourceConfiguration(config);
+    LOG.info("abfdjdbciowrapper: entered DataSourceConfiguration");
 
     DataSource dataSource = dataSourceConfiguration.buildDatasource();
+    LOG.info("abfdjdbciowrapper: built dataSource");
 
     SchemaDiscovery schemaDiscovery =
         new SchemaDiscoveryImpl(config.dialectAdapter(), config.schemaDiscoveryBackOff());
+    LOG.info("abfdjdbciowrapper: got SchemaDiscovery object");
 
     ImmutableList<TableConfig> tableConfigs =
         autoInferTableConfigs(config, schemaDiscovery, dataSource);
+    LOG.info("abfdjdbciowrapper: got tableConfigs");
     SourceSchema sourceSchema = getSourceSchema(config, schemaDiscovery, dataSource, tableConfigs);
+    LOG.info("abfdjdbciowrapper: got sourceSchema");
     ImmutableMap<SourceTableReference, PTransform<PBegin, PCollection<SourceRow>>> tableReaders =
         buildTableReaders(config, tableConfigs, dataSourceConfiguration, sourceSchema);
+    LOG.info("abfdjdbciowrapper: got tableReaders");
     return new JdbcIoWrapper(tableReaders, sourceSchema);
   }
 
@@ -161,13 +168,16 @@ public final class JdbcIoWrapper implements IoWrapper {
       SchemaDiscovery schemaDiscovery,
       DataSource dataSource,
       ImmutableList<TableConfig> tableConfigs) {
+    LOG.info("abfdjdbciowrapper.getSourceSchema: entered getSourceSchema");
     SourceSchema.Builder sourceSchemaBuilder =
         SourceSchema.builder().setSchemaReference(config.sourceSchemaReference());
+    LOG.info("abfdjdbciowrapper.getSourceSchema: got  SourceSchema.Builder");
     ImmutableList<String> tables =
         tableConfigs.stream().map(TableConfig::tableName).collect(ImmutableList.toImmutableList());
+    LOG.info("abfdjdbciowrapper.getSourceSchema: got  tables");
     ImmutableMap<String, ImmutableMap<String, SourceColumnType>> tableSchemas =
         schemaDiscovery.discoverTableSchema(dataSource, config.sourceSchemaReference(), tables);
-    LOG.info("Found table schemas: {}", tableSchemas);
+    LOG.info("abfdjdbciowrapper.getSourceSchema: Found table schemas: {}", tableSchemas);
     tableSchemas.entrySet().stream()
         .map(
             tableEntry -> {
@@ -183,6 +193,7 @@ public final class JdbcIoWrapper implements IoWrapper {
               return sourceTableSchemaBuilder.build();
             })
         .forEach(sourceSchemaBuilder::addTableSchema);
+    LOG.info("abfdjdbciowrapper.getSourceSchema:  end getSourceSchema");
     return sourceSchemaBuilder.build();
   }
 
@@ -199,15 +210,21 @@ public final class JdbcIoWrapper implements IoWrapper {
    */
   private static ImmutableList<TableConfig> autoInferTableConfigs(
       JdbcIOWrapperConfig config, SchemaDiscovery schemaDiscovery, DataSource dataSource) {
+    LOG.info("abfdjdbciowrapper.autoInferTableConfigs: entered autoInferTableConfigs");
     ImmutableList<String> discoveredTables =
         schemaDiscovery.discoverTables(dataSource, config.sourceSchemaReference());
+    LOG.info("abfdjdbciowrapper.autoInferTableConfigs: got discoveredTables");
     ImmutableList<String> tables = getTablesToMigrate(config.tables(), discoveredTables);
+    LOG.info("abfdjdbciowrapper.autoInferTableConfigs: got getTablesToMigrate");
     ImmutableMap<String, ImmutableList<SourceColumnIndexInfo>> indexes =
         schemaDiscovery.discoverTableIndexes(dataSource, config.sourceSchemaReference(), tables);
+    LOG.info("abfdjdbciowrapper.autoInferTableConfigs: got indexes");
     ImmutableList.Builder<TableConfig> tableConfigsBuilder = ImmutableList.builder();
     for (String table : tables) {
       tableConfigsBuilder.add(getTableConfig(table, config, indexes));
     }
+    LOG.info("abfdjdbciowrapper.autoInferTableConfigs: got tableConfigsBuilder");
+
     return tableConfigsBuilder.build();
   }
 

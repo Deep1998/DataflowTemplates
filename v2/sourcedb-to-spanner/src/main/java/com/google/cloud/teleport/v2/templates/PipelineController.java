@@ -60,20 +60,28 @@ public class PipelineController {
   static PipelineResult executeSingleInstanceMigration(
       SourceDbToSpannerOptions options, Pipeline pipeline, SpannerConfig spannerConfig) {
 
+    LOG.info("abfd: Fetching DDL");
     Ddl ddl = SpannerSchema.getInformationSchemaAsDdl(spannerConfig);
+    LOG.info("abfd: Got DDL");
     ISchemaMapper schemaMapper = PipelineController.getSchemaMapper(options, ddl);
+    LOG.info("abfd: Got schemaMapper");
 
     List<String> tablesToMigrate =
         PipelineController.listTablesToMigrate(options.getTables(), schemaMapper, ddl);
+    LOG.info("abfd: Got Tables to migrate");
+
     Set<String> tablesToMigrateSet = new HashSet<>(tablesToMigrate);
 
     // This list is all Spanner tables topologically ordered.
     List<String> orderedSpTables = ddl.getTablesOrderedByReference();
+    LOG.info("abfd: Got orderedSpTables");
 
     Map<String, PCollection<Void>> outputs = new HashMap<>();
 
     for (String spTable : orderedSpTables) {
       String srcTable = schemaMapper.getSourceTableName("", spTable);
+      LOG.info("abfd: Got srcTable");
+
       if (!tablesToMigrateSet.contains(srcTable)) {
         continue;
       }
@@ -114,16 +122,21 @@ public class PipelineController {
             "Output PCollection for parent table should not be null.");
         parentOutputs.add(parentOutputPcollection);
       }
+      LOG.info("abfd: Got parentOutputs");
+
       ReaderImpl reader =
           ReaderImpl.of(
               JdbcIoWrapper.of(
                   OptionsToConfigBuilder.MySql.configWithMySqlDefaultsFromOptions(
                       options, List.of(srcTable), null, Wait.on(parentOutputs))));
+      LOG.info("abfd: Got ReaderImpl");
+
       String suffix = generateSuffix("", srcTable);
       PCollection<Void> output =
           pipeline.apply(
               "Migrate" + suffix,
               new MigrateTableTransform(options, spannerConfig, ddl, schemaMapper, reader, ""));
+      LOG.info("abfd: Got output");
       outputs.put(srcTable, output);
     }
 
