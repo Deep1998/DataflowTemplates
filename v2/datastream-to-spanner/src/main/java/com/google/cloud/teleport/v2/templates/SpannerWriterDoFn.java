@@ -148,7 +148,11 @@ class SpannerWriterDoFn extends DoFn<String, Void> implements Serializable {
                     Struct shadowTableRow =
                         transaction.readRow(
                             "shadow_persons", shadowTableKey, List.of("last_write_timestamp"));
-                    long shadowTableTimestamp = shadowTableRow.getLong("last_write_timestamp");
+                    // If no row exists, treat as timestamp 0
+                    long shadowTableTimestamp =
+                        (shadowTableRow != null)
+                            ? shadowTableRow.getLong("last_write_timestamp")
+                            : 0L;
                     long messageTimestamp = jsonMessage.get("event_timestamp").getAsLong();
 
                     if (messageTimestamp <= shadowTableTimestamp) {
@@ -161,17 +165,14 @@ class SpannerWriterDoFn extends DoFn<String, Void> implements Serializable {
                             .set("id")
                             .to(id)
                             .set("last_write_timestamp")
-                            .to(
-                                Value.timestamp(
-                                    com.google.cloud.Timestamp.ofTimeMicroseconds(
-                                        messageTimestamp)))
+                            .to(Value.int64(messageTimestamp))
                             .build());
                     isInTransaction.set(false);
                     return null;
                   });
       successfulEvents.inc();
     } catch (Exception e) {
-      LOG.error("failed for event: {} {}", msg, e);
+      LOG.error("failed for event: {}", msg, e);
       failedEvents.inc();
     }
   }
